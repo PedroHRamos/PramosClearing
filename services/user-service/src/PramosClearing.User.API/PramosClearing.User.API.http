@@ -1,0 +1,6 @@
+@PramosClearing.User.API_HostAddress = http://localhost:5178
+
+GET {{PramosClearing.User.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

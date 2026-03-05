@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PramosClearing.Order.API/PramosClearing.Order.API.csproj" />
+    <Project Path="src/PramosClearing.Order.Application/PramosClearing.Order.Application.csproj" />
+    <Project Path="src/PramosClearing.Order.Domain/PramosClearing.Order.Domain.csproj" />
+    <Project Path="src/PramosClearing.Order.Infrastructure/PramosClearing.Order.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PramosClearing.Order.Tests/PramosClearing.Order.Tests.csproj" />
+  </Folder>
+</Solution>

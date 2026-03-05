@@ -1,0 +1,6 @@
+@PramosClearing.Market.API_HostAddress = http://localhost:5089
+
+GET {{PramosClearing.Market.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
