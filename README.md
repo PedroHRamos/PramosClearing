@@ -99,6 +99,17 @@ docker compose up -d
 
 ---
 
+## 🔮 Melhorias Futuras
+
+As próximas evoluções planejadas para a plataforma incluem a negociação de novos tipos de instrumentos financeiros:
+
+- **Fixed Income (Renda Fixa)** – Suporte à compra e venda de títulos de renda fixa, como Tesouro Direto e debêntures, com cálculo de rendimento e vencimento.
+- **Certificate of Deposit (CDB/CD)** – Negociação de certificados de depósito bancário com simulação de rentabilidade pré e pós-fixada.
+- **Structured Notes (Notas Estruturadas)** – Instrumentos híbridos que combinam renda fixa com derivativos, permitindo proteção de capital e exposição a diferentes ativos.
+- **Funds (Fundos de Investimento)** – Aplicação e resgate em cotas de fundos de investimento (renda fixa, multimercado, ações), com cálculo de rentabilidade e taxa de administração.
+
+---
+
 ## 📝 Licença
 
 Este projeto é de uso pessoal e educacional.
