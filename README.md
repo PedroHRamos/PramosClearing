@@ -1,51 +1,51 @@
-# PramosClearing
+﻿# PramosClearing
 
-**PramosClearing** é uma clearing fictícia de negociação de ações, desenvolvida para simular operações de compra e venda de ativos, gerenciamento de portfólio e acompanhamento de preços em tempo real.
-
----
-
-## 📋 Domínio do Sistema
-
-Os usuários da plataforma podem:
-
-- **Criar conta** – Cadastro com autenticação segura.
-- **Receber saldo fictício** – Saldo inicial para simulação de operações.
-- **Comprar ações** – Adquirir ativos disponíveis na bolsa simulada.
-- **Vender ações** – Liquidar posições e retornar saldo à conta.
-- **Ver portfólio** – Visualizar a carteira de investimentos com posições e rendimentos.
-- **Acompanhar preço em tempo real** – Streaming de cotações atualizado continuamente via WebSocket/eventos.
+**PramosClearing** is a fictional stock exchange clearing system built to simulate asset trading operations, portfolio management, and real-time price tracking.
 
 ---
 
-## 🛠️ Stack de Tecnologias
+## 📋 Domain
 
-| Camada | Tecnologia |
+Users of the platform can:
+
+- **Create an account** – Register with secure authentication.
+- **Receive a fictional balance** – Starting balance for trading simulation.
+- **Buy stocks** – Acquire assets available on the simulated exchange.
+- **Sell stocks** – Close positions and return funds to the account.
+- **View portfolio** – Inspect the investment portfolio with positions and returns.
+- **Track prices in real time** – Continuous price streaming via WebSocket/events.
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technology |
 |---|---|
 | **Backend** | C# .NET |
 | **API** | ASP.NET Core |
-| **Mensageria** | Apache Kafka / RabbitMQ |
+| **Messaging** | Apache Kafka / RabbitMQ |
 | **Cache** | Redis |
 | **Container** | Docker |
-| **Orquestração** | Kubernetes |
-| **Observabilidade** | Prometheus + Grafana |
+| **Orchestration** | Kubernetes |
+| **Observability** | Prometheus + Grafana |
 
-### Detalhes
+### Details
 
-- **C# .NET** – Toda a lógica de negócio é implementada em .NET, aproveitando o ecossistema maduro da plataforma Microsoft para alta performance e manutenibilidade.
-- **ASP.NET Core** – Exposição de endpoints REST e WebSocket para consumo pelos clientes front-end e integrações externas.
-- **Apache Kafka / RabbitMQ** – Comunicação assíncrona entre serviços (ex.: execução de ordens, atualização de preços, notificações). Kafka é preferível para fluxos de alta vazão e replay de eventos; RabbitMQ para roteamento flexível com menor latência.
-- **Redis** – Cache distribuído para cotações recentes, sessões de usuário e dados de portfólio consultados com frequência, reduzindo a carga no banco de dados.
-- **Docker** – Empacotamento de cada serviço em imagem de container, garantindo paridade entre ambientes de desenvolvimento, teste e produção.
-- **Kubernetes** – Orquestração dos containers em produção, fornecendo auto-scaling, self-healing, rolling updates e gerenciamento de secrets/configs.
-- **Prometheus + Grafana** – Coleta de métricas de aplicação e infraestrutura (Prometheus) com visualização em dashboards interativos (Grafana), além de suporte a alertas.
+- **C# .NET** – All business logic is implemented in .NET, leveraging the mature Microsoft ecosystem for high performance and maintainability.
+- **ASP.NET Core** – Exposes REST and WebSocket endpoints consumed by front-end clients and external integrations.
+- **Apache Kafka / RabbitMQ** – Asynchronous service-to-service communication (e.g. order execution, price updates, notifications). Kafka is preferred for high-throughput streams and event replay; RabbitMQ for flexible routing with lower latency.
+- **Redis** – Distributed cache for recent quotes, user sessions, and frequently read portfolio data, reducing load on the primary databases.
+- **Docker** – Packages each service into a container image, ensuring parity across development, test, and production environments.
+- **Kubernetes** – Orchestrates containers in production, providing auto-scaling, self-healing, rolling updates, and secrets/config management.
+- **Prometheus + Grafana** – Collects application and infrastructure metrics (Prometheus) and visualises them in interactive dashboards (Grafana), with alert support.
 
 ---
 
-## 🏗️ Arquitetura de Alto Nível
+## 🏗️ High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          Clientes                               │
+│                          Clients                                │
 │                  (Web App / Mobile / CLI)                       │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ HTTP / WebSocket
@@ -57,17 +57,17 @@ Os usuários da plataforma podem:
 │    User     │ │   Market   │ │  Order    │ │   Portfolio    │
 │   Service   │ │  Service   │ │  Service  │ │    Service     │
 │             │ │            │ │           │ │                │
-│ - cadastro  │ │ - ativos   │ │ - recebe  │ │ - posição do   │
-│ - auth      │ │ - preços   │ │   ordens  │ │   usuário      │
-│ - saldo     │ │   atuais   │ │           │ │ - valor total  │
+│ - register  │ │ - assets   │ │ - accepts │ │ - user         │
+│ - auth      │ │ - prices   │ │   orders  │ │   position     │
+│ - balance   │ │   current  │ │           │ │ - total value  │
 └──────┬──────┘ └──────▲─────┘ └─────┬─────┘ └────────────────┘
        │               │             │
        │        ┌──────┴──────┐      │
        │        │    Price    │      │
        │        │  Generator  │      │
        │        │             │      │
-       │        │ - simula o  │      │
-       │        │   mercado   │      │
+       │        │ - simulates │      │
+       │        │   market    │      │
        │        └──────┬──────┘      │
        │               │             │
        └───────────────▼─────────────┘
@@ -79,7 +79,7 @@ Os usuários da plataforma podem:
               │  Notification   │
               │    Service      │
               │                 │
-              │ escuta:         │
+              │ listens:        │
               │ - OrderExecuted │
               │ - PriceUpdated  │
               └─────────────────┘
@@ -87,62 +87,81 @@ Os usuários da plataforma podem:
        │              │              │
 ┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐
 │  Database   │ │   Redis   │ │ Prometheus │
-│ (SQL/NoSQL) │ │  (Cache)  │ │ + Grafana  │
+│  (SQL/TS)   │ │  (Cache)  │ │ + Grafana  │
 └─────────────┘ └───────────┘ └────────────┘
 ```
 
-### Microserviços
+### Microservices
 
-| Serviço | Responsabilidades |
+| Service | Responsibilities |
 |---|---|
-| **User Service** | Cadastro de usuários, autenticação e provisionamento de saldo fictício |
-| **Market Service** | Catálogo de ativos disponíveis e consulta de preços atuais |
-| **Price Generator** | Simula o comportamento do mercado, gerando atualizações de preço via Kafka (`PriceUpdated`) |
-| **Order Service** | Recebe ordens de compra/venda, valida e publica evento `OrderExecuted` no Kafka |
-| **Portfolio Service** | Mantém a posição do usuário e calcula o valor total da carteira |
-| **Notification Service** | Consome eventos Kafka (`OrderExecuted`, `PriceUpdated`) e notifica os clientes |
+| **User Service** | User registration, authentication, and fictional balance provisioning |
+| **Market Service** | Asset catalogue and current price queries |
+| **Price Generator** | Simulates market behaviour, publishing price updates to Kafka (`PriceUpdated`) |
+| **Order Service** | Accepts buy/sell orders, validates them, and publishes `OrderExecuted` to Kafka |
+| **Portfolio Service** | Maintains user positions and calculates total portfolio value |
+| **Notification Service** | Consumes Kafka events (`OrderExecuted`, `PriceUpdated`) and notifies clients |
 
-Todo o conjunto é empacotado com **Docker** e orquestrado via **Kubernetes**.
+The entire stack is packaged with **Docker** and orchestrated via **Kubernetes**.
 
 ---
 
-## 🚀 Como Executar (desenvolvimento local)
+## 🗄️ Database Architecture
 
-> **Pré-requisitos:** Docker e Docker Compose instalados.
+PramosClearing intentionally uses **polyglot persistence** — two purpose-built databases, each matched to its workload.
+
+| Database | Workload | Characteristics |
+|---|---|---|
+| **SQL Server** | Master data | Low write frequency · relational · strong consistency · ACID transactions |
+| **TimescaleDB** | Market time-series data | Very high write frequency · append-only · time-range queries · retention policies |
+
+**SQL Server** stores the reference entities the system depends on: assets, stocks, exchanges, currencies, users, orders, and portfolios. This data is relational by nature — a stock belongs to an exchange, an order references an asset — and requires foreign key constraints, unique indexes, and multi-table ACID transactions. Entity Framework Core 8 manages schema and queries for this layer.
+
+**TimescaleDB** (a PostgreSQL extension) stores the continuous stream of price ticks and OHLCV candles generated by the price simulation. At peak load the system produces tens of thousands of ticks per second; TimescaleDB's automatic time-based hypertable partitioning keeps inserts O(1) regardless of total table size. Continuous aggregates materialise candles incrementally, compression policies shrink historical data by up to 95 %, and retention policies drop old chunks automatically.
+
+Separating the two workloads means each database is sized and scaled independently. A tick ingestion spike does not compete with master data reads, and a SQL Server maintenance window does not affect market data availability.
+
+Full rationale is documented in [`docs/adr-001-database-strategy.md`](docs/adr-001-database-strategy.md) and [`docs/database-architecture.md`](docs/database-architecture.md).
+
+---
+
+## 🚀 Running Locally
+
+> **Prerequisites:** Docker and Docker Compose installed.
 
 ```bash
-# Clone o repositório
+# Clone the repository
 git clone https://github.com/PedroHRamos/PramosClearing.git
 cd PramosClearing
 
-# Suba os serviços de infraestrutura
+# Start infrastructure services
 docker compose up -d
 
-# Acesse a API
+# Access the API
 # http://localhost:5000/swagger
 ```
 
 ---
 
-## 📈 Observabilidade
+## 📈 Observability
 
-- **Prometheus** coleta métricas expostas em `/metrics` por cada serviço.
-- **Grafana** disponibiliza dashboards pré-configurados acessíveis em `http://localhost:3000`.
-- Alertas podem ser configurados para latência de API, erros de ordem e lag de consumidores Kafka/RabbitMQ.
-
----
-
-## 🔮 Melhorias Futuras
-
-As próximas evoluções planejadas para a plataforma incluem a negociação de novos tipos de instrumentos financeiros:
-
-- **Fixed Income (Renda Fixa)** – Suporte à compra e venda de títulos de renda fixa, como Tesouro Direto e debêntures, com cálculo de rendimento e vencimento.
-- **Certificate of Deposit (CDB/CD)** – Negociação de certificados de depósito bancário com simulação de rentabilidade pré e pós-fixada.
-- **Structured Notes (Notas Estruturadas)** – Instrumentos híbridos que combinam renda fixa com derivativos, permitindo proteção de capital e exposição a diferentes ativos.
-- **Funds (Fundos de Investimento)** – Aplicação e resgate em cotas de fundos de investimento (renda fixa, multimercado, ações), com cálculo de rentabilidade e taxa de administração.
+- **Prometheus** scrapes metrics exposed at `/metrics` by each service.
+- **Grafana** provides pre-configured dashboards accessible at `http://localhost:3000`.
+- Alerts can be configured for API latency, order errors, and Kafka/RabbitMQ consumer lag.
 
 ---
 
-## 📝 Licença
+## 🔮 Future Improvements
 
-Este projeto é de uso pessoal e educacional.
+Planned platform evolutions include support for new financial instrument types:
+
+- **Fixed Income** – Buy and sell government and corporate bonds with yield and maturity calculations.
+- **Certificate of Deposit (CD)** – Trade bank certificates of deposit with fixed and floating return simulation.
+- **Structured Notes** – Hybrid instruments combining fixed income with derivatives, enabling capital protection and multi-asset exposure.
+- **Investment Funds** – Subscribe to and redeem fund units (fixed income, multi-market, equities) with NAV and management fee calculations.
+
+---
+
+## 📝 License
+
+This project is for personal and educational use.
