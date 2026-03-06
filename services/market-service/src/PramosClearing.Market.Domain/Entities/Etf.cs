@@ -37,4 +37,12 @@ public sealed class Etf : Asset
     public string MarketIdentifier { get; private set; }
 
     public override string ToString() => MarketIdentifier;
+
+    private Etf()
+    {
+        Symbol           = null!;
+        Exchange         = null!;
+        UnderlyingIndex  = null!;
+        MarketIdentifier = null!;
+    }
 }

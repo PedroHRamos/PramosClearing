@@ -30,4 +30,12 @@ public sealed class Stock : Asset
     public override AssetType AssetType => AssetType.Stock;
 
     public override string ToString() => MarketIdentifier;
+
+    private Stock()
+    {
+        Symbol           = null!;
+        Exchange         = null!;
+        Sector           = null!;
+        MarketIdentifier = null!;
+    }
 }
