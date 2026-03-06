@@ -27,6 +27,10 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasMaxLength(512);
 
+        builder.Property(u => u.PasswordSalt)
+            .IsRequired()
+            .HasMaxLength(88);
+
         builder.Property(u => u.IsActive)
             .IsRequired()
             .HasDefaultValue(true);
