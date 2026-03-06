@@ -30,4 +30,10 @@ public sealed class Crypto : Asset
     }
 
     public override string ToString() => Symbol;
+
+    private Crypto()
+    {
+        Symbol  = null!;
+        Network = null!;
+    }
 }

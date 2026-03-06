@@ -10,20 +10,6 @@ internal sealed class StockConfiguration : IEntityTypeConfiguration<Stock>
     {
         builder.ToTable("stocks");
 
-        builder.HasKey(s => s.Id);
-
-        builder.Property(s => s.Id)
-            .ValueGeneratedNever();
-
-        builder.Property(s => s.Name)
-            .IsRequired()
-            .HasMaxLength(200);
-
-        builder.Property(s => s.Currency)
-            .IsRequired()
-            .HasMaxLength(3)
-            .IsFixedLength();
-
         builder.Property(s => s.Symbol)
             .IsRequired()
             .HasMaxLength(20);
@@ -35,6 +21,10 @@ internal sealed class StockConfiguration : IEntityTypeConfiguration<Stock>
         builder.Property(s => s.Sector)
             .IsRequired()
             .HasMaxLength(100);
+
+        builder.Property(s => s.MarketIdentifier)
+            .IsRequired()
+            .HasMaxLength(42);
 
         builder.HasIndex(s => new { s.Symbol, s.Exchange })
             .IsUnique()
