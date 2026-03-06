@@ -31,6 +31,20 @@ public sealed class Stock : Asset
 
     public override string ToString() => MarketIdentifier;
 
+    public void Update(string name, string currency, string exchange, string sector)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(name));
+        ArgumentException.ThrowIfNullOrWhiteSpace(currency, nameof(currency));
+        ArgumentException.ThrowIfNullOrWhiteSpace(exchange, nameof(exchange));
+        ArgumentException.ThrowIfNullOrWhiteSpace(sector, nameof(sector));
+
+        Name     = name;
+        Currency = currency;
+        Exchange = exchange.ToUpperInvariant();
+        Sector   = sector;
+        MarketIdentifier = string.Concat(Symbol, "@", Exchange);
+    }
+
     private Stock()
     {
         Symbol           = null!;

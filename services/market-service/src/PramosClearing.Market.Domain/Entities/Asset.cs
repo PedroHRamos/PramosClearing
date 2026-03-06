@@ -31,4 +31,10 @@ public abstract class Asset
         Name     = null!;
         Currency = null!;
     }
+
+    public void Deactivate()
+    {
+        IsActive  = false;
+        DeletedAt = DateTime.UtcNow;
+    }
 }

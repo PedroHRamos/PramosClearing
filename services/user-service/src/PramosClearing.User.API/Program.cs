@@ -10,7 +10,8 @@ builder.Services.AddDbContext<UserDbContext>(options =>
 
 var app = builder.Build();
 
-app.UseHttpsRedirection();
+using (var scope = app.Services.CreateScope())
+    scope.ServiceProvider.GetRequiredService<UserDbContext>().Database.Migrate();
 
 app.UseAuthorization();
 
