@@ -1,4 +1,4 @@
-﻿# PramosClearing
+# PramosClearing
 
 **PramosClearing** is a fictional stock exchange clearing system built to simulate asset trading operations, portfolio management, and real-time price tracking.
 
@@ -106,6 +106,18 @@ The entire stack is packaged with **Docker** and orchestrated via **Kubernetes**
 
 ---
 
+## OrderBook Simulator Worker
+
+The `orderbook-simulator` is a .NET `BackgroundService` that continuously generates synthetic Level 2 market data and publishes it to Kafka. It is designed to approximate, at small scale, the message cadence of a real market data provider.
+
+- **50 concurrent tasks** fire per batch — each independently selects a symbol, generates an `OrderBookUpdate` (add / modify / remove on a price level), and publishes to the `orderbook-updates` topic. This mirrors how professional feed handlers process multiple instruments in parallel with no sequential bottleneck between them.
+- **1–10 ms inter-batch delay** reproduces the bursty arrival pattern of real exchange feeds. Combined with 50-way concurrency this yields roughly **5,000–50,000 updates/second**, constrained in practice by Kafka producer throughput.
+- Each instrument keeps an in-memory order book with a random-walk mid-price, bid/ask depth capped at 10 levels, and crossed-market prevention.
+
+Full design rationale is in [`docs/orderbook-simulator.md`](docs/orderbook-simulator.md).
+
+---
+
 ## 🗄️ Database Architecture
 
 PramosClearing intentionally uses **polyglot persistence** — two purpose-built databases, each matched to its workload.
@@ -134,11 +146,28 @@ Full rationale is documented in [`docs/adr-001-database-strategy.md`](docs/adr-0
 git clone https://github.com/PedroHRamos/PramosClearing.git
 cd PramosClearing
 
-# Start infrastructure services
-docker compose up -d
+# Build and start all services
+docker compose up -d --build
+```
 
-# Access the API
-# http://localhost:5000/swagger
+The first start takes a few minutes while SQL Server initialises and migrations run.
+
+### Service URLs
+
+| Service | URL | Notes |
+|---|---|---|
+| **Market Service API** | http://localhost:5001/swagger | Asset catalogue and market data |
+| **User Service API** | http://localhost:5002/swagger | Registration, auth, balances |
+| **Kafka UI** | http://localhost:8090 | Browse topics, messages, consumer groups |
+
+### Observing the OrderBook Simulator
+
+Open **Kafka UI** at http://localhost:8090 and navigate to **Topics → orderbook-updates** to watch `OrderBookUpdate` messages arriving in real time.
+
+To follow the worker logs directly:
+
+```bash
+docker compose logs -f orderbook-simulator
 ```
 
 ---
