@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PramosClearing.MarketService.Application.Commands;
+using PramosClearing.MarketService.Application.Ports;
 using PramosClearing.MarketService.Application.Services;
 using PramosClearing.MarketService.Domain.Repositories;
 using PramosClearing.MarketService.Infrastructure;
@@ -36,6 +37,7 @@ builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssemblyContaining<CreateStockCommand>());
 
 builder.Services.AddScoped<IStockRepository, StockRepository>();
+builder.Services.AddScoped<IPriceTickReadRepository, PriceTickReadRepository>();
 builder.Services.AddSingleton<TopOfBookProjector>();
 builder.Services.AddHostedService<OrderBookUpdateConsumer>();
 
