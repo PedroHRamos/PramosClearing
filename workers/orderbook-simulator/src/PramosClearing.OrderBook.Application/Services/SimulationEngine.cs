@@ -38,6 +38,19 @@ public sealed class SimulationEngine
         _logger.LogInformation("Simulation initialized with {Count} order books.", _orderBooks.Count);
     }
 
+    public async Task PublishInitialSnapshotAsync(CancellationToken ct)
+    {
+        if (_symbols.Length == 0)
+            return;
+
+        foreach (var symbol in _symbols)
+        {
+            var updates = _orderBooks[symbol].Snapshot(DateTime.UtcNow);
+            foreach (var update in updates)
+                await _publisher.PublishAsync(update, ct).ConfigureAwait(false);
+        }
+    }
+
     public async Task TickAsync(CancellationToken ct)
     {
         if (_symbols.Length == 0)

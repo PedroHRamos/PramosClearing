@@ -150,7 +150,7 @@ cd PramosClearing
 docker compose up -d --build
 ```
 
-The first start takes a few minutes while SQL Server initialises and migrations run.
+The first start takes a few minutes while SQL Server initialises and TimescaleDB applies the bootstrap SQL files from `infra/db/timescaledb/`.
 
 ### Service URLs
 
@@ -159,6 +159,13 @@ The first start takes a few minutes while SQL Server initialises and migrations 
 | **Market Service API** | http://localhost:5001/swagger | Asset catalogue and market data |
 | **User Service API** | http://localhost:5002/swagger | Registration, auth, balances |
 | **Kafka UI** | http://localhost:8090 | Browse topics, messages, consumer groups |
+
+### Local database ports
+
+| Database | Port | Notes |
+|---|---|---|
+| **SQL Server** | `1433` | Master data store |
+| **TimescaleDB** | `5432` | Time-series store initialised from `infra/db/timescaledb/` |
 
 ### Observing the OrderBook Simulator
 

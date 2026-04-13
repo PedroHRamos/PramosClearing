@@ -37,6 +37,8 @@ public sealed class OrderBookSimulatorWorker : BackgroundService
             _engine.Initialize(stocks);
         }
 
+        await _engine.PublishInitialSnapshotAsync(stoppingToken).ConfigureAwait(false);
+
         _logger.LogInformation(
             "Simulation running. Tick interval: {Min}–{Max} ms.",
             _options.MinDelayMs,

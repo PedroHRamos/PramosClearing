@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PramosClearing.MarketService.Application.Commands;
+using PramosClearing.MarketService.Application.Services;
 using PramosClearing.MarketService.Domain.Repositories;
 using PramosClearing.MarketService.Infrastructure;
+using PramosClearing.MarketService.Infrastructure.Consumers;
 using PramosClearing.MarketService.Infrastructure.Persistence;
 using PramosClearing.MarketService.Infrastructure.Repositories;
 
@@ -21,10 +23,21 @@ builder.Services.AddDbContext<MarketDbContext>((sp, options) =>
     options.UseSqlServer(connectionStrings.DefaultConnection);
 });
 
+builder.Services.AddDbContextFactory<MarketDataDbContext>((sp, options) =>
+{
+    var connectionStrings = sp.GetRequiredService<IOptions<ConnectionStringsOptions>>().Value;
+    options.UseNpgsql(connectionStrings.TimescaleConnection);
+});
+
+builder.Services.Configure<KafkaConsumerOptions>(
+    builder.Configuration.GetSection("Kafka"));
+
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssemblyContaining<CreateStockCommand>());
 
 builder.Services.AddScoped<IStockRepository, StockRepository>();
+builder.Services.AddSingleton<TopOfBookProjector>();
+builder.Services.AddHostedService<OrderBookUpdateConsumer>();
 
 var app = builder.Build();
 
