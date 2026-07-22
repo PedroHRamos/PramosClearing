@@ -110,8 +110,9 @@ The entire stack is packaged with **Docker** and orchestrated via **Kubernetes**
 
 The `orderbook-simulator` is a .NET `BackgroundService` that continuously generates synthetic Level 2 market data and publishes it to Kafka. It is designed to approximate, at small scale, the message cadence of a real market data provider.
 
-- **50 concurrent tasks** fire per batch — each independently selects a symbol, generates an `OrderBookUpdate` (add / modify / remove on a price level), and publishes to the `orderbook-updates` topic. This mirrors how professional feed handlers process multiple instruments in parallel with no sequential bottleneck between them.
-- **1–10 ms inter-batch delay** reproduces the bursty arrival pattern of real exchange feeds. Combined with 50-way concurrency this yields roughly **5,000–50,000 updates/second**, constrained in practice by Kafka producer throughput.
+### To be defined, the load test makes more sense, now order book simulator can junst simulate some quotations
+- **X concurrent tasks** fire per batch — each independently selects a symbol, generates an `OrderBookUpdate` (add / modify / remove on a price level), and publishes to the `orderbook-updates` topic. This mirrors how professional feed handlers process multiple instruments in parallel with no sequential bottleneck between them.
+- **Y ms inter-batch delay** reproduces the bursty arrival pattern of real exchange feeds. Combined with 50-way concurrency this yields roughly **Z updates/second**, constrained in practice by Kafka producer throughput.
 - Each instrument keeps an in-memory order book with a random-walk mid-price, bid/ask depth capped at 10 levels, and crossed-market prevention.
 
 Full design rationale is in [`docs/orderbook-simulator.md`](docs/orderbook-simulator.md).
