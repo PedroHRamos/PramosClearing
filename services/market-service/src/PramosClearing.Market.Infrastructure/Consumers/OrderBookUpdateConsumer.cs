@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.EntityFrameworkCore;
@@ -5,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
+using NpgsqlTypes;
 using PramosClearing.MarketService.Application.Models;
 using PramosClearing.MarketService.Application.Services;
 using PramosClearing.MarketService.Infrastructure.Persistence;
@@ -56,32 +59,17 @@ public sealed class OrderBookUpdateConsumer : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            ConsumeResult<string, string>? result;
+            var batch = DrainBatch(consumer, _options.BatchSize, _options.FlushIntervalMs, stoppingToken);
 
-            try
-            {
-                result = consumer.Consume(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (ConsumeException ex)
-            {
-                _logger.LogError(ex, "Kafka consume failed for topic {Topic}.", _options.Topic);
-                continue;
-            }
-
-            if (result?.Message?.Value is null)
+            if (batch.Count == 0)
                 continue;
 
-            try
+            var ticks = new List<PriceTickEntity>(batch.Count);
+
+            foreach (var result in batch)
             {
                 if (!TryDeserialize(result.Message.Value, out var update))
-                {
-                    consumer.Commit(result);
                     continue;
-                }
 
                 var assetId = await TryResolveAssetIdAsync(update, stoppingToken).ConfigureAwait(false);
 
@@ -91,23 +79,80 @@ public sealed class OrderBookUpdateConsumer : BackgroundService
                         "Skipping order book update for unknown asset {Symbol}@{Exchange}.",
                         update.Symbol,
                         update.Exchange);
-
-                    consumer.Commit(result);
                     continue;
                 }
 
                 if (_projector.TryProject(update, assetId.Value, out var tick) && tick is not null)
-                    await PersistAsync(tick, stoppingToken).ConfigureAwait(false);
+                {
+                    ticks.Add(new PriceTickEntity
+                    {
+                        Time     = tick.Time,
+                        AssetId  = tick.AssetId,
+                        Symbol   = tick.Symbol,
+                        Exchange = tick.Exchange,
+                        Bid      = tick.Bid,
+                        Ask      = tick.Ask,
+                        Last     = tick.Last,
+                        Volume   = tick.Volume,
+                        Source   = tick.Source
+                    });
+                }
+            }
 
-                consumer.Commit(result);
+            try
+            {
+                if (ticks.Count > 0)
+                    await BulkPersistAsync(ticks, stoppingToken).ConfigureAwait(false);
+
+                consumer.Commit();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process Kafka message at {TopicPartitionOffset}.", result.TopicPartitionOffset);
+                _logger.LogError(ex, "Failed to persist batch of {Count} ticks.", ticks.Count);
             }
         }
 
         consumer.Close();
+    }
+
+    private static List<ConsumeResult<string, string>> DrainBatch(
+        IConsumer<string, string> consumer,
+        int maxSize,
+        int maxWaitMs,
+        CancellationToken ct)
+    {
+        var batch = new List<ConsumeResult<string, string>>(maxSize);
+        var deadline = DateTime.UtcNow.AddMilliseconds(maxWaitMs);
+
+        while (batch.Count < maxSize && !ct.IsCancellationRequested)
+        {
+            var remaining = (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalMilliseconds);
+            if (remaining <= 0)
+                break;
+
+            ConsumeResult<string, string>? result;
+            try
+            {
+                result = consumer.Consume(TimeSpan.FromMilliseconds(remaining));
+            }
+            catch (ConsumeException ex) when (!ct.IsCancellationRequested)
+            {
+                _ = ex;
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (result is null)
+                break;
+
+            if (result.Message?.Value is not null)
+                batch.Add(result);
+        }
+
+        return batch;
     }
 
     private static bool TryDeserialize(string payload, out OrderBookUpdateMessage update)
@@ -160,26 +205,75 @@ public sealed class OrderBookUpdateConsumer : BackgroundService
             _assetIdsByMarket[BuildMarketKey(stock.Symbol, stock.Exchange)] = stock.Id;
     }
 
-    private async Task PersistAsync(PriceTickWriteModel tick, CancellationToken cancellationToken)
+    private async Task BulkPersistAsync(IReadOnlyList<PriceTickEntity> ticks, CancellationToken cancellationToken)
     {
-        await using var marketDataDbContext = await _marketDataDbContextFactory
+        await using var context = await _marketDataDbContextFactory
             .CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        marketDataDbContext.Add(new PriceTickEntity
-        {
-            Time = tick.Time,
-            AssetId = tick.AssetId,
-            Symbol = tick.Symbol,
-            Exchange = tick.Exchange,
-            Bid = tick.Bid,
-            Ask = tick.Ask,
-            Last = tick.Last,
-            Volume = tick.Volume,
-            Source = tick.Source
-        });
+        // Deduplicate by the new PK (time, asset_id). Multiple messages in the
+        // same batch window can project to the same instant for the same asset.
+        var unique = new Dictionary<(DateTime, Guid), PriceTickEntity>(ticks.Count);
+        foreach (var tick in ticks)
+            unique[(tick.Time, tick.AssetId)] = tick;
 
-        await marketDataDbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var conn = (NpgsqlConnection)context.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        // Ensure the staging table exists for this connection session; clear it.
+        // No indexes on the staging table = COPY runs at maximum speed.
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                CREATE TEMP TABLE IF NOT EXISTS _stage_price_ticks (
+                    time        TIMESTAMPTZ    NOT NULL,
+                    asset_id    UUID           NOT NULL,
+                    symbol      TEXT           NOT NULL,
+                    exchange    TEXT           NOT NULL,
+                    bid         NUMERIC(28, 8) NOT NULL,
+                    ask         NUMERIC(28, 8) NOT NULL,
+                    last        NUMERIC(28, 8) NOT NULL,
+                    volume      NUMERIC(28, 8) NOT NULL,
+                    source      TEXT           NOT NULL
+                );
+                TRUNCATE _stage_price_ticks;
+                """;
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Binary COPY into staging — bypasses SQL parsing and index maintenance.
+        await using (var writer = await conn.BeginBinaryImportAsync(
+            "COPY _stage_price_ticks (time, asset_id, symbol, exchange, bid, ask, last, volume, source) FROM STDIN (FORMAT BINARY)",
+            cancellationToken))
+        {
+            foreach (var tick in unique.Values)
+            {
+                await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Time, NpgsqlDbType.TimestampTz, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.AssetId, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Symbol, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Exchange, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Bid, NpgsqlDbType.Numeric, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Ask, NpgsqlDbType.Numeric, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Last, NpgsqlDbType.Numeric, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Volume, NpgsqlDbType.Numeric, cancellationToken).ConfigureAwait(false);
+                await writer.WriteAsync(tick.Source, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
+            }
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Move from staging into the hypertable, skipping any duplicates (safe on consumer restart).
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                INSERT INTO price_ticks (time, asset_id, symbol, exchange, bid, ask, last, volume, source)
+                SELECT time, asset_id, symbol, exchange, bid, ask, last, volume, source
+                FROM _stage_price_ticks
+                ON CONFLICT (time, asset_id) DO NOTHING
+                """;
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static string BuildMarketKey(string symbol, string exchange) =>

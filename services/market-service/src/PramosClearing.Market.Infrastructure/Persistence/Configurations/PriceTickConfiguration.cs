@@ -9,18 +9,7 @@ internal sealed class PriceTickConfiguration : IEntityTypeConfiguration<PriceTic
     {
         builder.ToTable("price_ticks");
 
-        builder.HasKey(tick => new
-        {
-            tick.Time,
-            tick.AssetId,
-            tick.Symbol,
-            tick.Exchange,
-            tick.Bid,
-            tick.Ask,
-            tick.Last,
-            tick.Volume,
-            tick.Source
-        });
+        builder.HasKey(tick => new { tick.Time, tick.AssetId });
 
         builder.Property(tick => tick.Time)
             .HasColumnName("time");

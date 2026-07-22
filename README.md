@@ -177,6 +177,125 @@ To follow the worker logs directly:
 docker compose logs -f orderbook-simulator
 ```
 
+The simulator is configured for **10 prices per second** by default (`ConcurrencyLevel: 1`, `MinDelayMs: 100`, `MaxDelayMs: 100`). To change the rate, edit `Simulation` in the worker's `appsettings.json`:
+
+| Goal | MinDelayMs | MaxDelayMs | ConcurrencyLevel | Approx. prices/sec |
+|---|---|---|---|---|
+| 10/s (default) | 100 | 100 | 1 | ~10 |
+| 100/s | 10 | 10 | 1 | ~100 |
+| 1 000/s | 10 | 10 | 10 | ~1 000 |
+| 5 000/s (original) | 1 | 10 | 50 | ~5 000–50 000 |
+
+---
+
+## 🔥 Load Testing
+
+> **Prerequisites:** [k6](https://k6.io/docs/get-started/installation/) installed and all services running via `docker compose up -d --build`.
+
+Load tests live in [`tests/k6/`](tests/k6/). They target the **Market Service** read paths — the architectural hotspot when price simulation is running.
+
+### Measured baseline (July 2026)
+
+Tests were executed locally against the full Docker Compose stack. Payload: `/api/price-ticks` returning **1 000 rows per request** (`TICK_TAKE=1000`).
+
+| RPS | p50 | p90 | p95 | Error rate | Data/s | Result |
+|---|---|---|---|---|---|---|
+| 100 | 6 ms | 10 ms | 11 ms | 0 % | 12 MB/s | ✅ Comfortable |
+| 500 | 12 ms | 58 ms | 89 ms | 0 % | 58 MB/s | ✅ Healthy |
+| **600** | **22 ms** | **773 ms** | **1 020 ms** | **0 %** | **69 MB/s** | ⚠️ Max supported |
+| 800 | 3 900 ms | 5 560 ms | 30 730 ms | 0 % | 76 MB/s | ⚠️ Saturated |
+| 1 500 | 17 800 ms | 37 000 ms | 44 690 ms | 61 % | 28 MB/s | ❌ Collapsed |
+
+**Operational safe limit without tuning: ~600 RPS × 1 000 ticks.** Above this threshold the Npgsql connection pool saturates and latency increases non-linearly. Full diagnosis and improvement roadmap: [`docs/adr-002-market-service-performance.md`](docs/adr-002-market-service-performance.md).
+
+### Running the tests
+
+```bash
+# Steady-state baseline (50 RPS, 60 s)
+k6 run tests/k6/market-baseline.js
+
+# Heavy read — replicate the benchmark above
+k6 run -e TARGET_RPS=500 -e TICK_TAKE=1000 tests/k6/market-heavy-read.js
+
+# Stress ramp (10 → 500 VUs)
+k6 run tests/k6/market-stress.js
+
+# Instant spike to 2 000 VUs
+k6 run tests/k6/market-spike.js
+
+# Soak test (~10 min)
+k6 run tests/k6/market-soak.js
+```
+
+### Kafka ingest pipeline stress test
+
+Stresses the **write path**: `Kafka producer → consumer → TimescaleDB`.  
+Answers: *at what events/sec does the consumer start accumulating lag?*
+
+Uses a **producer sidecar** (`tests/k6/producer-sidecar/`) — a tiny Node.js service that bridges k6 HTTP calls to the native Kafka protocol via kafkajs. The Kafka UI REST API was discarded: it is a debug tool that saturates at ~100 RPS.
+
+**Prerequisites:**
+
+```bash
+# 1. Start the full stack
+docker compose up -d --build
+
+# 2. Build and start the producer sidecar (exposes :3001 on localhost)
+docker build -t k6-producer-sidecar tests/k6/producer-sidecar
+docker run --rm -d --name k6-producer --network pramosclearing_default -p 3001:3000 k6-producer-sidecar
+```
+
+**Monitoring consumer lag — Kafka UI:**
+
+Open **http://localhost:8090** → **Consumer Groups** → **market-price-tick-consumer**.
+The *Messages Behind* column updates in real time and is the authoritative lag metric.
+
+Alternatively, from the CLI:
+
+```bash
+docker exec pramosclearing-kafka-1 kafka-consumer-groups \
+  --bootstrap-server localhost:9092 \
+  --group market-price-tick-consumer \
+  --describe
+```
+
+**Scaling up — run each scenario and watch lag in Kafka UI:**
+
+| Scenario | events/sec | Hypothesis | Terminal 1 command |
+|---|---|---|---|
+| ✅ Warm-up | 1 000 | Zero lag (confirmed) | `k6 run -e EVENTS_PER_SEC=1000 tests/k6/kafka-ingest-load.js` |
+| Step 1 | 5 000 | Likely still zero lag | `k6 run -e EVENTS_PER_SEC=5000 -e DURATION=2m tests/k6/kafka-ingest-load.js` |
+| Step 2 | 10 000 | Lag may start growing | `k6 run -e EVENTS_PER_SEC=10000 -e DURATION=2m tests/k6/kafka-ingest-load.js` |
+| Step 3 | 20 000 | Consumer / TimescaleDB under pressure | `k6 run -e EVENTS_PER_SEC=20000 -e DURATION=2m tests/k6/kafka-ingest-load.js` |
+| Step 4 | 50 000 | Expecting saturation | `k6 run -e EVENTS_PER_SEC=50000 -e DURATION=2m tests/k6/kafka-ingest-load.js` |
+| Step 5 | 100 000 | Beyond single-node capacity (confirm collapse) | `k6 run -e EVENTS_PER_SEC=100000 -e DURATION=2m tests/k6/kafka-ingest-load.js` |
+
+**How to read the results:**
+
+- *Messages Behind* = 0 throughout → consumer keeps up, move to next step
+- *Messages Behind* growing steadily → consumer falling behind — previous step was the sustainable limit
+- `produce_errors > 1%` in k6 before lag grows → sidecar is the bottleneck, not the consumer; real consumer limit is higher
+
+**Stop the sidecar when done:**
+
+```bash
+docker stop k6-producer
+```
+
+Record the breaking point in [`docs/adr-002-market-service-performance.md`](docs/adr-002-market-service-performance.md) as the write-path baseline, equivalent to the 600 RPS read limit already documented.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `BASE_URL` | `http://localhost:5001` | Market Service base URL |
+| `TICKERS` | `AAPL@NASDAQ,MSFT@NASDAQ,…` | `symbol@exchange` pairs — must match seeded stocks |
+| `TARGET_RPS` | `50` | Target requests/sec (baseline, heavy-read) |
+| `DURATION` | `60s` | Test duration (baseline, heavy-read) |
+| `TICK_TAKE` | `100` (heavy-read: `1000`) | Ticks fetched per `/price-ticks` call |
+| `EVENTS_PER_SEC` | `1000` | Kafka events/sec injected by `kafka-ingest-load.js` |
+| `BATCH_SIZE` | `10` | Events per HTTP request to the sidecar |
+
 ---
 
 ## 📈 Observability
