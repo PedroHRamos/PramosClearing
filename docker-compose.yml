@@ -5,10 +5,15 @@ services:
       ACCEPT_EULA: "Y"
       SA_PASSWORD: "PramosClearing_Pass123!"
       MSSQL_PID: "Express"
+      MSSQL_MEMORY_LIMIT_MB: "1500"
     ports:
       - "1433:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
     healthcheck:
       test:
         [
@@ -27,6 +32,7 @@ services:
 
   timescaledb:
     image: timescale/timescaledb:2.18.2-pg16
+    command: postgres -c shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c max_connections=30
     environment:
       POSTGRES_DB: PramosClearing_MarketData
       POSTGRES_USER: postgres
@@ -36,6 +42,10 @@ services:
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
       - ./infra/db/timescaledb:/docker-entrypoint-initdb.d:ro
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d PramosClearing_MarketData"]
       interval: 10s
@@ -55,6 +65,10 @@ services:
       - Kafka__BootstrapServers=kafka:9092
       - Kafka__Topic=orderbook-updates
       - Kafka__GroupId=market-price-tick-consumer
+    deploy:
+      resources:
+        limits:
+          memory: 384m
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -73,6 +87,10 @@ services:
       - Kafka__BootstrapServers=kafka:9092
       - Kafka__Topic=orderbook-updates
       - Kafka__GroupId=market-price-tick-consumer
+    deploy:
+      resources:
+        limits:
+          memory: 384m
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -103,6 +121,10 @@ services:
       - Simulation__MaxDelayMs=100
       - Kafka__BootstrapServers=kafka:9092
       - Kafka__Topic=orderbook-updates
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     depends_on:
       market-service:
         condition: service_started
@@ -114,9 +136,14 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_HEAP_OPTS: "-Xms64m -Xmx192m"
     volumes:
       - zookeeper-data:/var/lib/zookeeper/data
       - zookeeper-logs:/var/lib/zookeeper/log
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     healthcheck:
       test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/2181'"]
       interval: 10s
@@ -137,8 +164,13 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
     volumes:
       - kafka-data:/var/lib/kafka/data
+    deploy:
+      resources:
+        limits:
+          memory: 768m
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -157,6 +189,11 @@ services:
       KAFKA_CLUSTERS_0_NAME: pramos-clearing
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      JAVA_OPTS: "-Xms64m -Xmx192m"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     depends_on:
       kafka:
         condition: service_healthy
