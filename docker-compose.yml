@@ -63,6 +63,24 @@ services:
       kafka:
         condition: service_healthy
 
+  market-service-consumer:
+    build:
+      context: ./services/market-service
+      dockerfile: Dockerfile
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=PramosClearing_Market;User Id=sa;Password=PramosClearing_Pass123!;TrustServerCertificate=True;
+      - ConnectionStrings__TimescaleConnection=Host=timescaledb;Port=5432;Database=PramosClearing_MarketData;Username=postgres;Password=postgres
+      - Kafka__BootstrapServers=kafka:9092
+      - Kafka__Topic=orderbook-updates
+      - Kafka__GroupId=market-price-tick-consumer
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
   user-service:
     build:
       context: ./services/user-service

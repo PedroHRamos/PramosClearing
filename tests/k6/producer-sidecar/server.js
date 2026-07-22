@@ -15,7 +15,7 @@ const producer = kafka.producer({
 const TOPIC             = process.env.KAFKA_TOPIC    || 'orderbook-updates';
 const PORT              = parseInt(process.env.PORT       || '3000', 10);
 const FLUSH_INTERVAL_MS = parseInt(process.env.FLUSH_MS   || '10',   10);
-const MAX_BUFFER        = parseInt(process.env.MAX_BUFFER || '2000', 10);
+const MAX_BUFFER        = parseInt(process.env.MAX_BUFFER || '10000', 10);
 
 const buffer = [];
 let flushing = false;

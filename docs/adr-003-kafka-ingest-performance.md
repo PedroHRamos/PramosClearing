@@ -83,7 +83,7 @@ The `ON CONFLICT DO NOTHING` guard makes consumer restarts safe: if a batch was 
 
 ---
 
-### 6. BatchSize 500 → 2000 to improve per-batch amortization
+### 6. BatchSize progression: 500 → 2000 → 5000 to improve per-batch amortization
 
 **Problem:** With `BatchSize = 500`, profiling showed each COPY cycle took ~40 ms:
 - `TRUNCATE _stage_price_ticks`: ~5 ms (fixed)
@@ -92,9 +92,31 @@ The `ON CONFLICT DO NOTHING` guard makes consumer restarts safe: if a batch was 
 
 The fixed overhead dominated, giving a ceiling of `500 / 0.040 = 12 500 events/s`.
 
-**Solution:** Increased `BatchSize` from 500 to 2000 in `KafkaConsumerOptions`. When a backlog exists, `DrainBatch` fills 2000 messages near-instantly (< 1 ms), then the COPY cycle handles 4× the rows for roughly 1.5–1.7× the time, improving amortization.
+**Solution:** Progressively increased `BatchSize` in `KafkaConsumerOptions`. When a backlog exists, `DrainBatch` fills the batch near-instantly (< 1 ms), so a larger batch amortizes the fixed COPY overhead over more rows. Three values were tested at 20 000 events/s:
 
-**Result:** At 20 000 events/s, lag growth dropped from 960 000 at test end (BatchSize=500) to 587 000 (BatchSize=2000), implying consumer throughput improved from ~12 000 to ~15 100 events/s.
+| BatchSize | Lag at end of 2 min test | Consumer throughput |
+|---|---|---|
+| 500 | ~960 000 | ~12 000/s |
+| 2 000 | ~587 000 | ~15 100/s |
+| 5 000 | ~100 000 | ~19 200/s |
+
+**Trade-off at BatchSize=5000:** Each COPY cycle processes 5 000 rows, which is significantly heavier. Under sustained 20 000 events/s, the COPY cycles caused brief CPU spikes on the Docker host that temporarily backed up the Kafka broker. This surfaced in the k6 sidecar metrics: 37 HTTP 503 errors (0.01%), p95 latency increased from ~19 ms to ~32 ms, and a single max spike of 1.59 s was observed. `dropped_iterations` rose from 33 to 406. All errors were transient and the produce error rate remained well within the 1% threshold.
+
+**Current value:** `BatchSize = 5000`.
+
+---
+
+### 7. Sidecar MAX_BUFFER too small + single consumer instance as joint ceiling at 20 000 events/s
+
+**Problem (sidecar):** Even with the `flushing` mutex, `MAX_BUFFER = 2000` was insufficient when the COPY cycles for 5 000 rows caused multi-second CPU spikes on the Docker host. During those spikes, kafkajs `send()` stalled, the `flushing` flag stayed `true`, and incoming messages piled into the buffer. At 2 000 sidecar req/s, the 2 000-message buffer was exhausted in under 1 second of stall, producing 503 responses.
+
+**Problem (consumer):** With a single consumer instance owning all 6 partitions, `DrainBatch` is sequential — it drains one batch, COPYs it, commits, then drains the next. Two concurrent consumers each own 3 partitions and run their COPY cycles in parallel, doubling effective throughput.
+
+**Solution:**
+- Increased `MAX_BUFFER` from 2 000 to 10 000 in `server.js` (default, overridable via `MAX_BUFFER` env var). This provides ~5 seconds of buffer headroom at 2 000 sidecar req/s before any 503 is returned.
+- Added `market-service-consumer` service to `docker-compose.yml`: same image as `market-service`, same `Kafka__GroupId`, no port binding. Kafka automatically rebalances the 6 partitions — 3 per instance — on startup.
+
+**Result:** At 20 000 events/s, consumer lag accumulated only ~7 000 messages over the full 2-minute test (growth rate ≈ 58/s, effective combined throughput ≈ **19 940 events/s**). Zero sidecar errors. The pipeline is effectively stable at 20 000 events/s.
 
 ---
 
@@ -102,21 +124,23 @@ The fixed overhead dominated, giving a ceiling of `500 / 0.040 = 12 500 events/s
 
 All tests: 2-minute duration, sidecar on `pramosclearing_default` Docker network, TimescaleDB single-node local Docker.
 
-| Rate (events/s) | Sidecar errors | Consumer lag behaviour | Consumer throughput | Result |
-|---|---|---|---|---|
-| 1 000 | 0% | 0 throughout | Matches rate | ✅ Stable |
-| 5 000 | 0% | 0 throughout | Matches rate | ✅ Stable |
-| 10 000 | 0% | Peak ~10 000 → settles ~1 000 | ~10 000/s | ✅ Stable |
-| 20 000 (BatchSize=500) | 0% | Grew to ~960 000 at end, then drained | ~12 000/s | ⚠️ Falling behind |
-| 20 000 (BatchSize=2000) | 0% | Grew to ~587 000 at end, drained quickly | ~15 100/s | ⚠️ Falling behind |
+| Rate (events/s) | Consumers | BatchSize | Sidecar errors | Consumer lag at end | Consumer throughput | Result |
+|---|---|---|---|---|---|---|
+| 1 000 | 1 | 500 | 0% | ~0 | ~1 000/s | ✅ Stable |
+| 5 000 | 1 | 500 | 0% | ~0 | ~5 000/s | ✅ Stable |
+| 10 000 | 1 | 500 | 0% | ~1 000 (steady) | ~10 000/s | ✅ Stable |
+| 20 000 | 1 | 500 | 0% | ~960 000 | ~12 000/s | ⚠️ Falling behind |
+| 20 000 | 1 | 2 000 | 0% | ~587 000 | ~15 100/s | ⚠️ Falling behind |
+| 20 000 | 1 | 5 000 | 0.01% | ~100 000 | ~19 200/s | ⚠️ Near limit |
+| **20 000** | **2** | **5 000** | **0%** | **~7 000** | **~19 940/s** | ✅ **Stable** |
 
-**Sustainable write-path limit (single consumer, single TimescaleDB node): ~15 000 events/s.**
+**Sustainable write-path limit (2 consumers, single TimescaleDB node, BatchSize=5 000): ~20 000 events/s.**
 
-At 10 000 events/s the consumer achieves true steady-state (lag ≈ 0). At 20 000 events/s the consumer falls behind but can drain the accumulated backlog after the producer stops, meaning the pipeline is resilient to bursts of up to 2× the sustainable rate for short durations.
+At 10 000 events/s a single consumer achieves true steady-state. At 20 000 events/s, two consumer instances (3 partitions each) combined with `BatchSize = 5 000` and `MAX_BUFFER = 10 000` on the sidecar produce a fully stable pipeline: lag of only ~7 000 messages after 2 minutes of sustained load (≈ 350 ms of buffering at that rate), zero sidecar errors.
 
 ---
 
-## Bottleneck Analysis (current ceiling ~15 000 events/s)
+## Bottleneck Analysis (current ceiling ~20 000 events/s)
 
 The remaining bottleneck is the **COPY cycle latency per batch**. With a backlog present, `DrainBatch` completes near-instantly (always full), so throughput is determined by:
 
@@ -130,17 +154,20 @@ Where `CycleTime` includes:
 
 The `INSERT SELECT ... ON CONFLICT DO NOTHING` into the TimescaleDB hypertable is the dominant variable cost, as each row must be routed to the correct chunk and checked against the PK index.
 
+At BatchSize=5 000, the cycle time increases enough to create intermittent CPU pressure on the Docker host, briefly starving the Kafka broker and causing transient producer backpressure. This is the observed secondary effect at 20 000 events/s.
+
 ---
 
-## Options to Exceed 15 000 events/s (not yet implemented)
+## Options to Exceed 20 000 events/s (not yet implemented)
 
 | Option | Expected gain | Complexity |
 |---|---|---|
-| Increase `BatchSize` further (e.g. 5 000) | ~20 000/s (diminishing returns) | Trivial — config change |
-| Run 2 consumer instances (requires 12 partitions) | ~30 000/s | Low — increase partitions + scale replicas |
+| ~~Increase `BatchSize` to 5 000~~ | ~~Tried: ~19 200/s~~ | ~~Done~~ |
+| ~~2 consumer instances~~ | ~~Stable at 20 000/s~~ | ~~Done~~ |
+| Add a 3rd consumer instance (requires 9 partitions) | ~30 000/s | Low — increase partitions + one more replica |
 | COPY directly to hypertable (skip staging + INSERT SELECT) | Removes ON CONFLICT guard | Requires application-level idempotency |
 | Disable continuous aggregate refresh during ingest | Reduces TimescaleDB write amplification | Medium — operational complexity |
-| Dedicated TimescaleDB write connection pool | Reduces connection setup overhead | Low |
+| Dedicated TimescaleDB node (off Docker host) | Eliminates CPU contention | Infrastructure change |
 
 ---
 
@@ -154,7 +181,8 @@ The `orderbook-updates` topic was increased from 1 to **6 partitions** during th
 
 | Metric | Read path (ADR-002) | Write path (this ADR) |
 |---|---|---|
-| Sustainable limit | ~600 RPS × 1 000 ticks | ~15 000 events/s |
-| Bottleneck | Npgsql connection pool exhaustion | COPY cycle latency per batch |
-| Single-node? | Yes | Yes |
+| Sustainable limit | ~600 RPS × 1 000 ticks | ~20 000 events/s |
+| Bottleneck | Npgsql connection pool exhaustion | COPY cycle latency per batch + TimescaleDB CPU |
+| Single-node? | Yes | Yes (TimescaleDB) |
+| Consumer instances | 1 | 2 (3 partitions each) |
 | Scaling path | Connection pool tuning, read replicas | More partitions + consumer instances |
