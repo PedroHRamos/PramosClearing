@@ -101,4 +101,17 @@ public sealed class OrderBookTests
         Assert.Equal(symbol,   book.Symbol);
         Assert.Equal(exchange, book.Exchange);
     }
+
+    [Fact]
+    public void Snapshot_ReturnsSeedLevelsForBothSides()
+    {
+        var book = new OrderBookEntity("AAPL", "NASDAQ", 182.50m);
+
+        var snapshot = book.Snapshot(DateTime.UtcNow);
+
+        Assert.Equal(10, snapshot.Count);
+        Assert.Equal(5, snapshot.Count(update => update.Side == OrderSide.Bid));
+        Assert.Equal(5, snapshot.Count(update => update.Side == OrderSide.Ask));
+        Assert.All(snapshot, update => Assert.Equal(OrderAction.Add, update.Action));
+    }
 }

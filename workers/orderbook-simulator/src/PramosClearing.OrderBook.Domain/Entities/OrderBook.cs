@@ -63,6 +63,37 @@ public sealed class OrderBook
         return ApplyModify(side, levels, random);
     }
 
+    public IReadOnlyList<OrderBookUpdate> Snapshot(DateTime timestamp)
+    {
+        var updates = new List<OrderBookUpdate>(_bids.Count + _asks.Count);
+
+        foreach (var level in _bids)
+        {
+            updates.Add(new OrderBookUpdate(
+                Symbol,
+                Exchange,
+                OrderSide.Bid,
+                level.Key,
+                level.Value.Quantity.Value,
+                OrderAction.Add,
+                timestamp));
+        }
+
+        foreach (var level in _asks)
+        {
+            updates.Add(new OrderBookUpdate(
+                Symbol,
+                Exchange,
+                OrderSide.Ask,
+                level.Key,
+                level.Value.Quantity.Value,
+                OrderAction.Add,
+                timestamp));
+        }
+
+        return updates;
+    }
+
     private void Seed()
     {
         for (var i = 1; i <= SeedLevels; i++)

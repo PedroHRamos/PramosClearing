@@ -1,0 +1,28 @@
+# Build a custom k6 binary with the xk6-kafka extension.
+# Produces the binary `k6-kafka` in the current directory (tests/k6/).
+#
+# Usage:
+#   From the repo root (PowerShell):
+#     docker run --rm -u root -v "$PWD/tests/k6:/xk6" grafana/xk6 build latest --with github.com/mostafa/xk6-kafka@latest --output /xk6/k6-kafka
+#
+#   From the repo root (cmd.exe):
+#     docker run --rm -u root -v "%cd%/tests/k6:/xk6" grafana/xk6 build latest --with github.com/mostafa/xk6-kafka@latest --output /xk6/k6-kafka
+#
+#   From the repo root (Linux/macOS):
+#     docker run --rm -u root -v "$PWD/tests/k6:/xk6" grafana/xk6 build latest --with github.com/mostafa/xk6-kafka@latest --output /xk6/k6-kafka
+
+ARG XK6_VERSION=latest
+ARG KAFKA_EXT=github.com/mostafa/xk6-kafka@latest
+
+FROM grafana/xk6:${XK6_VERSION} AS builder
+ARG KAFKA_EXT
+RUN xk6 build \
+    --with ${KAFKA_EXT} \
+    --output /tmp/k6-kafka
+
+FROM debian:stable-slim
+COPY --from=builder /tmp/k6-kafka /usr/local/bin/k6-kafka
+COPY . /scripts
+WORKDIR /scripts
+ENTRYPOINT ["/usr/local/bin/k6-kafka"]
+CMD ["help"]

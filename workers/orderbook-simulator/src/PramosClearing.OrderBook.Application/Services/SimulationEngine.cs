@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using PramosClearing.OrderBook.Application.Models;
+using PramosClearing.OrderBook.Application.Options;
 using PramosClearing.OrderBook.Application.Ports;
 using PramosClearing.OrderBook.Domain.Events;
 using OrderBookEntity = PramosClearing.OrderBook.Domain.Entities.OrderBook;
@@ -8,7 +10,7 @@ namespace PramosClearing.OrderBook.Application.Services;
 
 public sealed class SimulationEngine
 {
-    private const int ConcurrencyLevel = 50;
+    private readonly int _concurrencyLevel;
 
     private readonly IOrderBookEventPublisher _publisher;
     private readonly ILogger<SimulationEngine> _logger;
@@ -19,10 +21,12 @@ public sealed class SimulationEngine
 
     public SimulationEngine(
         IOrderBookEventPublisher publisher,
+        IOptions<SimulationOptions> options,
         ILogger<SimulationEngine> logger)
     {
-        _publisher = publisher;
-        _logger    = logger;
+        _publisher        = publisher;
+        _concurrencyLevel = options.Value.ConcurrencyLevel;
+        _logger           = logger;
     }
 
     public void Initialize(IReadOnlyList<StockInfo> stocks)
@@ -38,13 +42,26 @@ public sealed class SimulationEngine
         _logger.LogInformation("Simulation initialized with {Count} order books.", _orderBooks.Count);
     }
 
+    public async Task PublishInitialSnapshotAsync(CancellationToken ct)
+    {
+        if (_symbols.Length == 0)
+            return;
+
+        foreach (var symbol in _symbols)
+        {
+            var updates = _orderBooks[symbol].Snapshot(DateTime.UtcNow);
+            foreach (var update in updates)
+                await _publisher.PublishAsync(update, ct).ConfigureAwait(false);
+        }
+    }
+
     public async Task TickAsync(CancellationToken ct)
     {
         if (_symbols.Length == 0)
             return;
 
-        var tasks = new Task[ConcurrencyLevel];
-        for (var i = 0; i < ConcurrencyLevel; i++)
+        var tasks = new Task[_concurrencyLevel];
+        for (var i = 0; i < _concurrencyLevel; i++)
         {
             tasks[i] = GenerateAndPublishAsync(ct);
         }

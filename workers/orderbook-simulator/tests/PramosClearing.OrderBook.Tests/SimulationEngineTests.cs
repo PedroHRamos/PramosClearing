@@ -3,6 +3,7 @@ using PramosClearing.OrderBook.Application.Models;
 using PramosClearing.OrderBook.Application.Services;
 using PramosClearing.OrderBook.Domain.Events;
 using PramosClearing.OrderBook.Application.Ports;
+using PramosClearing.OrderBook.Domain.Enums;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PramosClearing.OrderBook.Tests;
@@ -47,7 +48,7 @@ public sealed class SimulationEngineTests
 
         await engine.TickAsync(CancellationToken.None);
 
-        Assert.Single(publisher.Published);
+        Assert.Equal(50, publisher.Published.Count);
     }
 
     [Fact]
@@ -67,6 +68,26 @@ public sealed class SimulationEngineTests
             await engine.TickAsync(CancellationToken.None);
 
         Assert.All(publisher.Published, u => Assert.Equal("GOOG", u.Symbol));
-        Assert.Equal(50, publisher.Published.Count);
+        Assert.Equal(2500, publisher.Published.Count);
+    }
+
+    [Fact]
+    public async Task PublishInitialSnapshotAsync_PublishesSeedLevelsForEachStock()
+    {
+        var publisher = new StubPublisher();
+        var engine    = new SimulationEngine(publisher, NullLogger<SimulationEngine>.Instance);
+
+        var stocks = new List<StockInfo>
+        {
+            new("AAPL", "NASDAQ", "USD", "Apple Inc."),
+            new("MSFT", "NASDAQ", "USD", "Microsoft Corporation")
+        };
+
+        engine.Initialize(stocks);
+
+        await engine.PublishInitialSnapshotAsync(CancellationToken.None);
+
+        Assert.Equal(20, publisher.Published.Count);
+        Assert.All(publisher.Published, update => Assert.Equal(OrderAction.Add, update.Action));
     }
 }
